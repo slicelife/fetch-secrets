@@ -19,3 +19,4 @@ jobs:
         goarch: ${{ matrix.goarch }}
         goversion: "https://go.dev/dl/go1.19.1.linux-amd64.tar.gz"
         binary_name: "fetch-secrets"
+        compress_assets: false
