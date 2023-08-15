@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,29 +10,25 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/secretsmanager"
-	"github.com/aws/aws-sdk-go/service/sts"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-func fetch_secrets_from_path(secretId string, sess *session.Session) interface{} {
-	secret_manager_svc := secretsmanager.New(sess)
+func fetch_secrets_from_path(secretId string, cfg aws.Config) interface{} {
+	secret_manager_svc := secretsmanager.NewFromConfig(cfg)
 	input := &secretsmanager.GetSecretValueInput{
 		SecretId: aws.String(secretId),
 	}
 
-	result, err := secret_manager_svc.GetSecretValue(input)
+	result, err := secret_manager_svc.GetSecretValue(context.TODO(), input)
 	if err != nil {
-		if err, ok := err.(awserr.Error); ok {
-			log.Fatal(err.Error())
-		}
+		log.Fatal(err)
 	}
 
-	var secretString string
-	secretString = *result.SecretString
+	var secretString string = *result.SecretString
 
 	var anyJson interface{}
 
@@ -49,10 +46,10 @@ func flatten_json(secretsMap interface{}) []string {
 	return tmp
 }
 
-func get_role_name(sess *session.Session) string {
-	sts_svc := sts.New(sess)
+func get_role_name(cfg aws.Config) string {
+	sts_svc := sts.NewFromConfig(cfg)
 
-	caller_identity, err := sts_svc.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	caller_identity, err := sts_svc.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -67,28 +64,47 @@ func get_role_name(sess *session.Session) string {
 }
 
 func main() {
-	sess, err := session.NewSession()
-	if err != nil {
-		log.Fatal(err.Error())
+	var region_config config.LoadOptionsFunc
+
+	manual_region, exists := os.LookupEnv("FS_REGION")
+	if exists {
+		region_config = config.WithRegion(manual_region)
+	} else {
+		region_config = config.WithRegion("")
 	}
-	iam_svc := iam.New(sess)
 
-	var role_name = get_role_name(sess)
+	cfg, err := config.LoadDefaultConfig(context.TODO(), region_config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	iam_svc := iam.NewFromConfig(cfg)
 
-	tags_resp, err := iam_svc.ListRoleTags(&iam.ListRoleTagsInput{
+	var role_name = get_role_name(cfg)
+
+	tags_resp, err := iam_svc.ListRoleTags(context.TODO(), &iam.ListRoleTagsInput{
 		RoleName: &role_name,
 	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var newEnv []string = os.Environ()
 
 	for _, v := range tags_resp.Tags {
 		if strings.HasPrefix(*v.Key, "secrets_") {
-			fmt.Println(*v.Value)
-			var fetched_secrets interface{} = fetch_secrets_from_path(*v.Value, sess)
+			log.Println("Loading secrets for", *v.Value)
+			var fetched_secrets interface{} = fetch_secrets_from_path(*v.Value, cfg)
 			newEnv = append(newEnv, flatten_json(fetched_secrets)...)
 		}
 	}
+
+	log.Printf("Executing %v", os.Args)
 	path, err := exec.LookPath(os.Args[1])
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if err := syscall.Exec(path, os.Args[1:], newEnv); err != nil {
 		log.Fatal(err)
