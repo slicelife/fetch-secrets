@@ -73,7 +73,7 @@ make artifact
 ```
 The resulting binary will be called `fetch-secrets`.
 
-_NOTE: If you need to compile a linux specific binary run and you're on a mac us:_
+_NOTE: If you need to compile a linux specific binary run and you're on a Mac use:_
 ```shell
 GOOS=linux go build
 ```
