@@ -4,8 +4,8 @@
 
 ## Usage
 
-This small binary fetches JSON formatted secrets from AWS Secrets Manager.  It adds the fetched secrets to the `env` for
-an binary that it executes after retrieving the secrets.
+This small binary fetches JSON formatted secrets from AWS Secrets Manager.
+It exports the fetched secrets to the shell environment in which some binary (that requires said secrets) is then executed.
 
 The secrets should be stored in a AWS Secrets Manager secret with a value specified in a flat JSON K:V format.
 The Secrets Manager secret name should usually follow the path pattern `$service_name/$env/secrets`.  
