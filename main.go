@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -24,10 +25,25 @@ const (
 )
 
 var (
-	awsSecretsClient *secretsmanager.Client
-	awsSTSClient     *sts.Client
-	awsIAMClient     *iam.Client
+	awsSecretsClient *secretsmanager.Client //nolint:gochecknoglobals
+	awsSTSClient     *sts.Client            //nolint:gochecknoglobals
+	awsIAMClient     *iam.Client            //nolint:gochecknoglobals
+	errGetRole       = errors.New("error getting role")
+	errGetSecret     = errors.New("error getting secret")
+	errGetTags       = errors.New("error getting tags")
 )
+
+func wrapErrGetRole(s string) error {
+	return fmt.Errorf("%w : %s", errGetRole, s)
+}
+
+func wrapErrGetSecret(s string) error {
+	return fmt.Errorf("%w : %s", errGetSecret, s)
+}
+
+func wrapErrGetTags(s string) error {
+	return fmt.Errorf("%w : %s", errGetTags, s)
+}
 
 //go:generate mockgen -source=main.go -destination=mocks/aws_mocks.go -package aws_mocks
 
@@ -49,16 +65,16 @@ func getSecretsByID(ctx context.Context, secretsClient secretsClient, secretID s
 			SecretId: aws.String(secretID),
 		})
 	if err != nil {
-		return nil, fmt.Errorf("unable to get secret %q from SecretsManager: %w", secretID, err)
+		return nil, wrapErrGetSecret(fmt.Sprintf("unable to get secret %q from SecretsManager: %e", secretID, err))
 	}
 
-	var secretsJSON map[string]interface{}
+	var secretsJSON map[string]any
 	err = json.Unmarshal([]byte(*result.SecretString), &secretsJSON)
 	if err != nil {
-		return nil, fmt.Errorf("unable unmarshal %q JSON from SecretManager: %w", secretID, err)
+		return nil, wrapErrGetSecret(fmt.Sprintf("unable unmarshal %q JSON from SecretManager: %e", secretID, err))
 	}
 
-	var secrets []string
+	var secrets []string //nolint:prealloc
 	for k, v := range secretsJSON {
 		slog.Info(">>> finding secret value for:", slog.String("secret name", k))
 		secrets = append(secrets, fmt.Sprintf("%s=%s", k, v))
@@ -70,12 +86,12 @@ func getSecretsByID(ctx context.Context, secretsClient secretsClient, secretID s
 func getRole(ctx context.Context, stsClient stsClient) (string, error) {
 	callerID, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
-		return "", fmt.Errorf("unable to get STS caller ID: %w", err)
+		return "", wrapErrGetRole(fmt.Sprintf("unable to get STS caller ID: %e", err))
 	}
 
 	roleParts := strings.Split(*callerID.Arn, "/")
 	if len(roleParts) < 2 || roleParts[1] == "" || roleParts[1] == "*" {
-		return "", fmt.Errorf("unable to determine role name from arn: %s", *callerID.Arn)
+		return "", wrapErrGetRole(fmt.Sprintf("unable to determine role name from arn: %s", *callerID.Arn))
 	}
 
 	return roleParts[1], nil
@@ -88,7 +104,7 @@ func getTags(ctx context.Context, iamClient iamClient, role string) ([]string, e
 			RoleName: &role,
 		})
 	if err != nil {
-		return nil, fmt.Errorf("unable to get tags for role: %s", role)
+		return nil, wrapErrGetTags(fmt.Sprintf("unable to get tags for role: %s", role))
 	}
 
 	var tags []string
@@ -103,7 +119,6 @@ func getTags(ctx context.Context, iamClient iamClient, role string) ([]string, e
 }
 
 func main() {
-
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	slog.Info("fetch-secrets starting >>>")
 
@@ -132,7 +147,7 @@ func main() {
 		syscall.Exit(3)
 	}
 
-	if ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) {
 		slog.Error("fetch-secrets timeout:", slog.Duration("timeout", timeout))
 		syscall.Exit(4)
 	}

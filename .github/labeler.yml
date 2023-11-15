@@ -1,0 +1,53 @@
+# Add 'python' label to any .py file changes
+python:
+  - "**/*.py"
+
+# Add 'terraform' label to any .tf file changes
+terraform:
+  - "**/*.tf"
+
+# Add 'yaml' label to any .yaml file changes
+yaml:
+  - "**/*.yaml"
+  - "**/*.yml"
+
+# Add 'json' label to any .json file changes
+json:
+  - "**/*.json"
+
+# Add 'markdown' label to any .md file changes
+markdown:
+  - "**/*.md"
+
+# Add 'docker' label to any Dockerfile changes
+docker:
+  - "**/Dockerfile"
+
+# Add 'shell' label to any .sh file changes
+shell:
+  - "**/*.sh"
+
+# Add 'dependencies' label if poetry.lock changes
+dependencies:
+  - "poetry.lock"
+
+# Add 'contains: migrations' if any changes under migrations/ directory
+"contains: migrations":
+  - "migrations/**"
+
+# Add 'html' label to any .html file changes
+html:
+  - "**/*.html"
+
+# Add 'documentation' label to any changes under docs/ directory
+documentation:
+  - "docs/**"
+  - README.md
+
+# Add 'tests' label to any changes under tests/ directory
+tests:
+  - "tests/**"
+
+# Add 'ruby' label to any .rb file changes
+ruby:
+  - "**/*.rb"
