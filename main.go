@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -17,96 +18,149 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-func fetch_secrets_from_path(secretId string, cfg aws.Config) interface{} {
-	secret_manager_svc := secretsmanager.NewFromConfig(cfg)
-	input := &secretsmanager.GetSecretValueInput{
-		SecretId: aws.String(secretId),
-	}
+const (
+	timeout         = 60 * time.Second
+	secretTagPrefix = "secret_"
+)
 
-	result, err := secret_manager_svc.GetSecretValue(context.TODO(), input)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var secretString string = *result.SecretString
-
-	var anyJson interface{}
-
-	json.Unmarshal([]byte(secretString), &anyJson)
-
-	return anyJson
+type awsClients struct {
+	secretsClient secretsClient
+	stsClient     stsClient
+	iamClient     iamClient
 }
 
-func flatten_json(secretsMap interface{}) []string {
-	var tmp []string
-	for key, el := range secretsMap.(map[string]interface{}) {
-		tmp = append(tmp, fmt.Sprintf("%s=%s", key, el))
-	}
+var clients *awsClients
 
-	return tmp
+//go:generate mockgen -source=main.go -destination=mocks/aws_mocks.go -package aws_mocks
+
+type secretsClient interface {
+	GetSecretValue(ctx context.Context, params *secretsmanager.GetSecretValueInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error)
 }
 
-func get_role_name(cfg aws.Config) string {
-	sts_svc := sts.NewFromConfig(cfg)
-
-	caller_identity, err := sts_svc.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
-	var role_arn string = *caller_identity.Arn
-
-	split_role := strings.Split(role_arn, "/")
-
-	var role_name string = split_role[1]
-
-	return role_name
+type stsClient interface {
+	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
 }
 
-func main() {
-	var region_config config.LoadOptionsFunc
+type iamClient interface {
+	ListRoleTags(ctx context.Context, params *iam.ListRoleTagsInput, optFns ...func(*iam.Options)) (*iam.ListRoleTagsOutput, error)
+}
 
-	manual_region, exists := os.LookupEnv("FS_REGION")
-	if exists {
-		region_config = config.WithRegion(manual_region)
-	} else {
-		region_config = config.WithRegion("")
-	}
-
-	cfg, err := config.LoadDefaultConfig(context.TODO(), region_config)
+func fetchSecretsByID(ctx context.Context, secretsClient secretsClient, secretID string) ([]string, error) {
+	result, err := secretsClient.GetSecretValue(ctx,
+		&secretsmanager.GetSecretValueInput{
+			SecretId: aws.String(secretID),
+		})
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("unable to get secret %q from SecretsManager: %w", secretID, err)
 	}
-	iam_svc := iam.NewFromConfig(cfg)
 
-	var role_name = get_role_name(cfg)
-
-	tags_resp, err := iam_svc.ListRoleTags(context.TODO(), &iam.ListRoleTagsInput{
-		RoleName: &role_name,
-	})
-
+	var secretsJSON map[string]interface{}
+	err = json.Unmarshal([]byte(*result.SecretString), &secretsJSON)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("unable unmarshal %q JSON from SecretManager: %w", secretID, err)
 	}
 
-	var newEnv []string = os.Environ()
+	secrets := make([]string, len(secretsJSON))
+	for k, v := range secretsJSON {
+		fmt.Println("finding ")
+		secrets = append(secrets, fmt.Sprintf("%s=%s", k, v))
+	}
 
-	for _, v := range tags_resp.Tags {
-		if strings.HasPrefix(*v.Key, "secrets_") {
-			log.Println("Loading secrets for", *v.Value)
-			var fetched_secrets interface{} = fetch_secrets_from_path(*v.Value, cfg)
-			newEnv = append(newEnv, flatten_json(fetched_secrets)...)
+	return secrets, nil
+}
+
+func getRole(ctx context.Context, stsClient stsClient) (string, error) {
+	callerID, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if err != nil {
+		return "", fmt.Errorf("unable to get STS caller ID: %w", err)
+	}
+
+	roleParts := strings.Split(*callerID.Arn, "/")
+	if len(roleParts) < 2 || roleParts[1] == "" || roleParts[1] == "*" {
+		return "", fmt.Errorf("unable to determine role name from arn: %s", *callerID.Arn)
+	}
+
+	return roleParts[1], nil
+}
+
+func getTags(ctx context.Context, iamClient iamClient, role string) ([]string, error) {
+	resp, err := iamClient.ListRoleTags(ctx,
+		&iam.ListRoleTagsInput{
+			RoleName: &role,
+		})
+	if err != nil {
+		return []string{}, fmt.Errorf("unable to get tags for role: %s", role)
+	}
+
+	tags := make([]string, len(resp.Tags))
+	for _, t := range resp.Tags {
+		tag := *t.Key
+		if strings.HasPrefix(tag, secretTagPrefix) {
+			tags = append(tags, tag)
 		}
 	}
 
-	log.Printf("Executing %v", os.Args)
-	path, err := exec.LookPath(os.Args[1])
+	return tags, nil
+}
 
+func main() {
+
+	path, err := exec.LookPath(os.Args[1])
+	if err != nil {
+		log.Fatal(fmt.Errorf("executable not found: %w", err))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(os.Getenv("FS_REGION")))
+	if err != nil {
+		log.Fatal(fmt.Errorf("unable to load AWS config: %w", err))
+	}
+
+	clients = &awsClients{
+		secretsClient: secretsmanager.NewFromConfig(cfg),
+		stsClient:     sts.NewFromConfig(cfg),
+		iamClient:     iam.NewFromConfig(cfg),
+	}
+
+	secrets, err := getSecrets(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	if ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
+		log.Fatal(fmt.Errorf("exceeded timeout %s", timeout))
+	}
+
+	newEnv := append(os.Environ(), secrets...)
+	log.Printf("Executing %v", os.Args)
 	if err := syscall.Exec(path, os.Args[1:], newEnv); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func getSecrets(ctx context.Context) ([]string, error) {
+
+	var secrets []string
+	role, err := getRole(ctx, clients.stsClient)
+	if err != nil {
+		return secrets, err
+	}
+
+	secretTags, err := getTags(ctx, clients.iamClient, role)
+	if err != nil {
+		return secrets, err
+	}
+
+	for _, tag := range secretTags {
+		fetched, err := fetchSecretsByID(ctx, clients.secretsClient, tag)
+		if err != nil {
+			log.Println(err.Error()) // Non-fatal, allows secret fetching to continue if secret not found or bad JSON
+			continue
+		}
+		secrets = append(secrets, fetched...)
+	}
+
+	return secrets, nil
 }
