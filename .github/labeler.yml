@@ -1,7 +1,3 @@
-# Add 'python' label to any .py file changes
-python:
-  - "**/*.py"
-
 # Add 'terraform' label to any .tf file changes
 terraform:
   - "**/*.tf"
@@ -19,35 +15,23 @@ json:
 markdown:
   - "**/*.md"
 
-# Add 'docker' label to any Dockerfile changes
-docker:
-  - "**/Dockerfile"
-
-# Add 'shell' label to any .sh file changes
-shell:
-  - "**/*.sh"
-
 # Add 'dependencies' label if poetry.lock changes
 dependencies:
-  - "poetry.lock"
-
-# Add 'contains: migrations' if any changes under migrations/ directory
-"contains: migrations":
-  - "migrations/**"
+  - "go.mod"
 
 # Add 'html' label to any .html file changes
 html:
   - "**/*.html"
 
 # Add 'documentation' label to any changes under docs/ directory
-documentation:
+docs:
   - "docs/**"
   - README.md
 
-# Add 'tests' label to any changes under tests/ directory
-tests:
-  - "tests/**"
+# Add 'go' label to any .go file changes
+go:
+  - "**/*.go"
 
-# Add 'ruby' label to any .rb file changes
-ruby:
-  - "**/*.rb"
+# Add 'make' label to Makefile file changes
+make:
+  - "Makefile"

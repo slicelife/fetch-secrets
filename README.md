@@ -16,6 +16,9 @@ Any tag keys prefixed with `secrets_` will be matched; the corresponding tag val
 eg; The tag `secrets_default = myservice/dev/secrets` will load the secrets stored in the secret named `myservice/dev/secrets`. 
 You can specify multiple tags, however, the merging order is arbitrary so don't expect precedence.
 
+`fetch-secrets` supports the use of an `FS_REGION` env var, which can be configured when applications use different regions
+for their secrets.  Note, the application will still use `AWS_REGION` as normal.
+
 ---
 
 ## Running
@@ -25,9 +28,49 @@ You can specify multiple tags, however, the merging order is arbitrary so don't 
 ```
 This will load the variables and exec `mycommand` (with the subcommand and args), making the secret values available as env vars for the `mycommand` application.
 
+To run `fetch-secrets` in a docker container, download the [latest binary release](https://github.com/slicelife/fetch-secrets/releases), update the binary permissions and prepend to your existing app command. eg;
+```dockerfile
+ADD https://github.com/slicelife/fetch-secrets/releases/download/v0.2.0/fetch-secrets-v0.2.0-linux-amd64 /fetch-secrets
+RUN chmod +x /fetch-secrets
+CMD ["/fetch-secrets", "/entrypoint.sh"]
+```
+
 ###  IAM policy required for `fetch-secrets`
 
-In order to auto-discover secrets, `fetch-secrets` or the container/pod/instance it is running on requires the following IAM policy:  
+In order to auto-discover secrets, `fetch-secrets` or the container/pod/instance it is running on requires the following IAM policy:
+```hcl
+resource "aws_iam_policy" "service" {
+  name   = local.role_name
+  policy = data.aws_iam_policy_document.service.json
+
+  tags = {
+    secrets_default = "${var.service_name}/${var.short_env}/secrets"
+  }
+}
+
+data "aws_iam_policy_document" "service" {
+  statement {
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      "arn:aws:secretsmanager:*:${data.aws_caller_identity.current.account_id}:secret:${var.service_name}/${var.short_env}/*"
+    ]
+    effect = "Allow"
+  }
+
+  statement {
+    actions   = ["iam:ListRoleTags"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.role_name}"]
+    effect    = "Allow"
+  }
+
+  statement {
+    actions   = ["sts:GetCallerIdentity"]
+    resources = ["*"]
+    effect    = "Allow"
+  }
+}
+```
+Or alternatively using embedded JSON:
 ```terraform
 policy = jsonencode({
     "Version" : "2012-10-17",
@@ -53,7 +96,6 @@ policy = jsonencode({
       }
     ]
   })
-
 ```
 
 You can add tags to your role using Terraform.  eg;
@@ -87,5 +129,20 @@ Lint the code using:
 ```shell
 make lint
 ```
+
+---
+
+## Troubleshooting
+
+`fetch-secrets` uses JSON logging throughout.  The logging should indicate, the role determined, the tag keys and values as well as the secret-names to fetch values for.  
+If logs are unavailable, the following exit-codes should be helpful in indicating where the issue might be:
+
+| Exit Code | Description                             |
+|:---------:|-----------------------------------------|
+|     1     | Executable to run not found             |
+|     2     | Problem loading AWS config              |
+|     3     | Failed to get AWS role, tags or secrets |
+|     4     | Timeout (default 1min)                  |
+|     5     | Failed to run executable                |
 
 ---

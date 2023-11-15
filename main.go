@@ -176,7 +176,7 @@ func getSecrets(ctx context.Context) ([]string, error) {
 	for _, tag := range secretTags {
 		fetched, err := getSecretsByID(ctx, awsSecretsClient, tag)
 		if err != nil {
-			slog.Warn("", slog.Any("fetch-secrets", err)) // Non-fatal, if secret not found or bad JSON
+			slog.Warn("no valid secret value(s) found:", slog.String("tag-name", tag), slog.Any("error", err)) // Non-fatal, if secret not found or bad JSON
 			continue
 		}
 		secrets = append(secrets, fetched...)
