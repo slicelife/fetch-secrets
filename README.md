@@ -1,25 +1,33 @@
-### Fetch secrets from AWS Secrets Manager
+# Fetch secrets from AWS Secrets Manager
 
-#### Usage
+---
 
-This small binary fetches JSON formatted secrets from AWS Secrets Manager.  
-The secrets should be in a flat JSON K:V format. 
-The secrets path should usually follow the pattern `$service_name/$env/secrets`  
+## Usage
+
+This small binary fetches JSON formatted secrets from AWS Secrets Manager.  It adds the fetched secrets to the `env` for
+an binary that it executes after retrieving the secrets.
+
+The secrets should be stored in a AWS Secrets Manager secret with a value specified in a flat JSON K:V format.
+The Secrets Manager secret name should usually follow the path pattern `$service_name/$env/secrets`.  
 
 
-It will use the the IAM role tags to autodiscover the secrets to be fetched, 
-any tags begginig with `secrets_` will be matched, the value should point to the secrets manager path.  
-For example the tag `secrets_default = myservice/dev/secrets` will load the secrets at that location. You can specify multiple tags, the merging order is arbitrary so don't expect precedence.
+`fetch-secrets` will use the IAM role tags to auto-discover the secrets to be fetched.
+Any tag keys prefixed with `secrets_` will be matched; the corresponding tag value be a Secrets Manager secret name.  
+eg; The tag `secrets_default = myservice/dev/secrets` will load the secrets stored in the secret named `myservice/dev/secrets`. 
+You can specify multiple tags, however, the merging order is arbitrary so don't expect precedence.
 
+---
 
-You then run it like this:  
-```sh
+## Running
+
+```shell
 ./fetch-secrets mycommand subcommand --my-arg example
 ```
-This will load the variables and exec `mycommand` making them available as env variables in your application.
+This will load the variables and exec `mycommand` (with the subcommand and args), making the secret values available as env vars for the `mycommand` application.
 
-#### IAM configuration
-It will need the following policy to auto discover secrets:  
+###  IAM policy required for `fetch-secrets`
+
+In order to auto-discover secrets, `fetch-secrets` or the container/pod/instance it is running on requires the following IAM policy:  
 ```terraform
 policy = jsonencode({
     "Version" : "2012-10-17",
@@ -48,23 +56,36 @@ policy = jsonencode({
 
 ```
 
-You can then add tags to your role:  
+You can add tags to your role using Terraform.  eg;
 ```terraform
   tags = {
     secrets_default = "${var.service_name}/${var.short_env}/secrets"
   }
 ```
 
+---
 
-#### Building
+## Building, testing and linting
 
-Run the following commands:  
-```sh
-go get
-go build
-````
+Build the binary using:  
+```shell
+make artifact
+```
+The resulting binary will be called `fetch-secrets`.
 
-The resulting binary will be in this directory called `fetch-secrets`.
+_NOTE: If you need to compile a linux specific binary run and you're on a mac us:_
+```shell
+GOOS=linux go build
+```
 
-If you need to compile a linux specific binary run and you're on a mac run:  
-`GOOS=linux go build`
+Test the code using:
+```shell
+make test
+```
+
+Lint the code using:
+```shell
+make lint
+```
+
+---

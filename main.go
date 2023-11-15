@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -23,13 +23,11 @@ const (
 	secretTagPrefix = "secret_"
 )
 
-type awsClients struct {
-	secretsClient secretsClient
-	stsClient     stsClient
-	iamClient     iamClient
-}
-
-var clients *awsClients
+var (
+	awsSecretsClient *secretsmanager.Client
+	awsSTSClient     *sts.Client
+	awsIAMClient     *iam.Client
+)
 
 //go:generate mockgen -source=main.go -destination=mocks/aws_mocks.go -package aws_mocks
 
@@ -45,7 +43,7 @@ type iamClient interface {
 	ListRoleTags(ctx context.Context, params *iam.ListRoleTagsInput, optFns ...func(*iam.Options)) (*iam.ListRoleTagsOutput, error)
 }
 
-func fetchSecretsByID(ctx context.Context, secretsClient secretsClient, secretID string) ([]string, error) {
+func getSecretsByID(ctx context.Context, secretsClient secretsClient, secretID string) ([]string, error) {
 	result, err := secretsClient.GetSecretValue(ctx,
 		&secretsmanager.GetSecretValueInput{
 			SecretId: aws.String(secretID),
@@ -60,9 +58,9 @@ func fetchSecretsByID(ctx context.Context, secretsClient secretsClient, secretID
 		return nil, fmt.Errorf("unable unmarshal %q JSON from SecretManager: %w", secretID, err)
 	}
 
-	secrets := make([]string, len(secretsJSON))
+	var secrets []string
 	for k, v := range secretsJSON {
-		fmt.Println("finding ")
+		slog.Info(">>> finding secret value for:", slog.String("secret name", k))
 		secrets = append(secrets, fmt.Sprintf("%s=%s", k, v))
 	}
 
@@ -84,15 +82,16 @@ func getRole(ctx context.Context, stsClient stsClient) (string, error) {
 }
 
 func getTags(ctx context.Context, iamClient iamClient, role string) ([]string, error) {
+	slog.Info(">>> getting prefixed tags for role:", slog.String("prefix", secretTagPrefix), slog.String("role", role))
 	resp, err := iamClient.ListRoleTags(ctx,
 		&iam.ListRoleTagsInput{
 			RoleName: &role,
 		})
 	if err != nil {
-		return []string{}, fmt.Errorf("unable to get tags for role: %s", role)
+		return nil, fmt.Errorf("unable to get tags for role: %s", role)
 	}
 
-	tags := make([]string, len(resp.Tags))
+	var tags []string
 	for _, t := range resp.Tags {
 		tag := *t.Key
 		if strings.HasPrefix(tag, secretTagPrefix) {
@@ -105,9 +104,13 @@ func getTags(ctx context.Context, iamClient iamClient, role string) ([]string, e
 
 func main() {
 
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	slog.Info("fetch-secrets starting >>>")
+
 	path, err := exec.LookPath(os.Args[1])
 	if err != nil {
-		log.Fatal(fmt.Errorf("executable not found: %w", err))
+		slog.Error("executable not found:", slog.Any("error", err))
+		syscall.Exit(1)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -115,48 +118,50 @@ func main() {
 
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(os.Getenv("FS_REGION")))
 	if err != nil {
-		log.Fatal(fmt.Errorf("unable to load AWS config: %w", err))
+		slog.Error("unable to load AWS config:", slog.Any("error", err))
+		syscall.Exit(2)
 	}
 
-	clients = &awsClients{
-		secretsClient: secretsmanager.NewFromConfig(cfg),
-		stsClient:     sts.NewFromConfig(cfg),
-		iamClient:     iam.NewFromConfig(cfg),
-	}
+	awsSecretsClient = secretsmanager.NewFromConfig(cfg)
+	awsSTSClient = sts.NewFromConfig(cfg)
+	awsIAMClient = iam.NewFromConfig(cfg)
 
 	secrets, err := getSecrets(ctx)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("fetch-secrets failure:", slog.Any("error", err))
+		syscall.Exit(3)
 	}
 
 	if ctx.Err() == context.DeadlineExceeded || ctx.Err() == context.Canceled {
-		log.Fatal(fmt.Errorf("exceeded timeout %s", timeout))
+		slog.Error("fetch-secrets timeout:", slog.Duration("timeout", timeout))
+		syscall.Exit(4)
 	}
+	slog.Info(">>> adding secrets to env", slog.Int("numOfSecrets", len(secrets)))
 
 	newEnv := append(os.Environ(), secrets...)
-	log.Printf("Executing %v", os.Args)
+	slog.Info("executing:", slog.Any("cmd", os.Args))
 	if err := syscall.Exec(path, os.Args[1:], newEnv); err != nil {
-		log.Fatal(err)
+		slog.Error("fetch-secrets failure executing:", slog.Any("cmd", os.Args))
+		syscall.Exit(5)
 	}
 }
 
 func getSecrets(ctx context.Context) ([]string, error) {
-
 	var secrets []string
-	role, err := getRole(ctx, clients.stsClient)
-	if err != nil {
+	role, err := getRole(ctx, awsSTSClient)
+	if err != nil || role == "" {
 		return secrets, err
 	}
 
-	secretTags, err := getTags(ctx, clients.iamClient, role)
+	secretTags, err := getTags(ctx, awsIAMClient, role)
 	if err != nil {
 		return secrets, err
 	}
 
 	for _, tag := range secretTags {
-		fetched, err := fetchSecretsByID(ctx, clients.secretsClient, tag)
+		fetched, err := getSecretsByID(ctx, awsSecretsClient, tag)
 		if err != nil {
-			log.Println(err.Error()) // Non-fatal, allows secret fetching to continue if secret not found or bad JSON
+			slog.Warn("", slog.Any("fetch-secrets", err)) // Non-fatal, if secret not found or bad JSON
 			continue
 		}
 		secrets = append(secrets, fetched...)
