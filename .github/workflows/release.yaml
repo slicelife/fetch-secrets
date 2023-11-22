@@ -7,13 +7,7 @@ permissions:
   packages: write
 
 jobs:
-  cancel-pending:
-    uses: slicelife/github-workflows/.github/workflows/cancel-pending.yml@main
-    secrets:
-      CANCEL_TOKEN: ${{ secrets.CANCEL_TOKEN }}
-
   releases-matrix:
-    needs: cancel-pending
     name: Release Go Binary
     runs-on: ubuntu-latest
     strategy:
