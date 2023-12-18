@@ -42,10 +42,6 @@ In order to auto-discover secrets, `fetch-secrets` or the container/pod/instance
 resource "aws_iam_policy" "service" {
   name   = local.role_name
   policy = data.aws_iam_policy_document.service.json
-
-  tags = {
-    secrets_default = "${var.service_name}/${var.short_env}/secrets"
-  }
 }
 
 data "aws_iam_policy_document" "service" {
@@ -128,6 +124,11 @@ make test
 Lint the code using:
 ```shell
 make lint
+```
+
+Generate mocks for unit testing:
+```shell
+make generate
 ```
 
 ---
