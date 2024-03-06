@@ -1,0 +1,37 @@
+# Add 'terraform' label to any .tf file changes
+terraform:
+  - "**/*.tf"
+
+# Add 'yaml' label to any .yaml file changes
+yaml:
+  - "**/*.yaml"
+  - "**/*.yml"
+
+# Add 'json' label to any .json file changes
+json:
+  - "**/*.json"
+
+# Add 'markdown' label to any .md file changes
+markdown:
+  - "**/*.md"
+
+# Add 'dependencies' label if poetry.lock changes
+dependencies:
+  - "go.mod"
+
+# Add 'html' label to any .html file changes
+html:
+  - "**/*.html"
+
+# Add 'documentation' label to any changes under docs/ directory
+docs:
+  - "docs/**"
+  - README.md
+
+# Add 'go' label to any .go file changes
+go:
+  - "**/*.go"
+
+# Add 'make' label to Makefile file changes
+make:
+  - "Makefile"
