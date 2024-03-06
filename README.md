@@ -5,7 +5,7 @@
 ## Usage
 
 This small binary fetches JSON formatted secrets from AWS Secrets Manager.
-It passes the fetched secrets to the binary (that requires the secrets) when it is executed. (see [`execve`(https://man7.org/linux/man-pages/man2/execve.2.html)])
+It passes the fetched secrets to the binary (that requires the secrets) when it is executed. (see [`execve`](https://man7.org/linux/man-pages/man2/execve.2.html))
 
 The secrets should be stored in a AWS Secrets Manager secret with a value specified in a flat JSON K:V format.
 The Secrets Manager secret name should usually follow the path pattern `$service_name/$env/secrets`.  
