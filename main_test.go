@@ -147,8 +147,8 @@ func (s *FetchSecretsTestSuite) TestGetTags_Success() {
 			Value: stringPtr("tag-value"),
 		},
 		{
-			Key:   stringPtr("secret_tag-key"),
-			Value: stringPtr("secret-tag-value"),
+			Key:   stringPtr("secrets_tag-key"),
+			Value: stringPtr("secrets-tag-value"),
 		},
 	}
 
@@ -161,7 +161,7 @@ func (s *FetchSecretsTestSuite) TestGetTags_Success() {
 	assert.NoError(s.T(), err)
 	assert.NotEmpty(s.T(), result)
 	assert.Equal(s.T(), len(result), 1)
-	assert.Contains(s.T(), result, "secret_tag-key")
+	assert.Contains(s.T(), result, "secrets-tag-value")
 }
 
 func (s *FetchSecretsTestSuite) TestFetchSecretsByID_SecretsError() {

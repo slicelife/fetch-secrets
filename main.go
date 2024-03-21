@@ -21,7 +21,7 @@ import (
 
 const (
 	timeout         = 60 * time.Second
-	secretTagPrefix = "secret_"
+	secretTagPrefix = "secrets_"
 )
 
 var (
@@ -111,7 +111,7 @@ func getTags(ctx context.Context, iamClient iamClient, role string) ([]string, e
 	for _, t := range resp.Tags {
 		tag := *t.Key
 		if strings.HasPrefix(tag, secretTagPrefix) {
-			tags = append(tags, tag)
+			tags = append(tags, *t.Value)
 		}
 	}
 
