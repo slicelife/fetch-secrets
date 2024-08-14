@@ -1,0 +1,54 @@
+name: pr
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  cancel-pending:
+    uses: slicelife/github-workflows/.github/workflows/cancel-pending.yml@main
+    secrets:
+      CANCEL_TOKEN: ${{ secrets.CANCEL_TOKEN }}
+
+  tf:
+    needs: cancel-pending
+    uses: slicelife/github-workflows/.github/workflows/terraform-on-pr-v1.yml@main #matt/sc-490339/tfcmt
+    # secrets:
+      # TFCMT_GITHUB_TOKEN: ${{ secrets.TFCMT_GITHUB_TOKEN }}
+    
+  # build-tasks:
+  #   needs: cancel-pending
+  #   uses: slicelife/github-workflows/.github/workflows/build-tasks-go-v1.yml@main
+  #   permissions:
+  #     contents: write
+  #     pull-requests: write
+  #   with:
+  #     REPORT_TEST_COVERAGE: false
+  #     GOLANGCI_LINT_ENABLE_CUSTOM_LINT: false
+  #     GEN_CHECK: false
+  #     BUILD_IMAGE: true
+  #     DOCKER_IMAGE_NAME: ${{ github.event.repository.name }}
+  #     DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}
+  #   secrets:
+  #     GO_MOD_TOKEN: ${{ secrets.GO_MOD_TOKEN }}
+  #     DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  #     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # argocd:
+  #   needs: build-tasks
+  #   uses: slicelife/github-workflows/.github/workflows/argocd-on-pr-v3.yml@main
+  #   with:
+  #     DOCKER_IMAGE_NAME: ${{ github.event.repository.name }}
+  #     DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}
+  #     ARGOCD_APP: ${{ github.event.repository.name }}
+  #     ARGOCD_SERVER: ${{ vars.ARGOCD_SERVER_DEV }}
+  #     ARGOCD_SERVER_SBX: ${{ vars.ARGOCD_SERVER_SBX }}
+  #     EKS_NAME: eks-dev
+
+  #     FB_NAMESPACE_PREFIX: consumer
+  #     ARGOCD_APP_PATH_FB: argocd/feature-branch.tmpl.yaml
+      
+  #     DEPLOY_SBX: true
+  #   secrets:
+  #     ARGOCD_TOKEN_DEV: ${{ secrets.ARGOCD_TOKEN_CONSUMER_DEV }}
