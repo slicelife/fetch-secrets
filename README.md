@@ -147,3 +147,7 @@ If logs are unavailable, the following exit-codes should be helpful in indicatin
 |     5     | Failed to run executable                |
 
 ---
+
+## Roadmap
+
+Planned improvements, grouped per PR, are in [docs/improvement-plan.md](docs/improvement-plan.md).
